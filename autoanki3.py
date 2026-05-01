@@ -1,4 +1,3 @@
-import csv
 import os
 import re
 import time
@@ -7,9 +6,8 @@ import urllib.request
 import urllib.error
 import json
 import requests
-import base64  # ← ★これ重要
+import base64
 
-# 🔽 ここ追加
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -17,7 +15,6 @@ load_dotenv()
 # 設定
 # =========================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OUT_CSV = "anki_export.csv"
 MEDIA_DIR = "./media"
 
 SLEEP_SEC = 2.0
@@ -33,7 +30,6 @@ os.makedirs(MEDIA_DIR, exist_ok=True)
 # =========================
 user_input = input("単語をカンマ区切りで入力: ")
 
-# 「,」と「、」両方対応
 INPUT_WORDS = re.split(r"[、,]", user_input)
 INPUT_WORDS = [w.strip() for w in INPUT_WORDS if w.strip()]
 
@@ -68,7 +64,6 @@ JSONのみで出力：
         "input": prompt
     }
 
-    # ★ここが超重要（UTF-8で強制）
     res = requests.post(
         url,
         headers=headers,
@@ -86,6 +81,7 @@ JSONのみで出力：
         raise Exception("レスポンス形式が不明")
 
     return json.loads(text)
+
 # =========================
 # ユーティリティ
 # =========================
@@ -175,31 +171,31 @@ def add_to_anki(word, meaning, reading, ex1, ex2, image_path=None):
 
         # ② カード作成
         res = requests.post(
-        "http://localhost:8765", 
-        json={
-            "action": "addNote",
-            "version": 6,
-            "params": {
-                "note": {
-                    "deckName": "vocab",
-                    "modelName": "現在写真あり読書",
-                    "fields": {
-                        "Expression": word,
-                        "定義": meaning,
-                        "Reading": reading,
-                        "例文": ex1,
-                        "例文２": ex2,
-                        "写真": image_html,
-                        "単語発音": "",
-                        "発音": "",
-                        "書き方": "",
-                        "他": "",
-                    },
-                    "tags": ["auto"]
+            "http://localhost:8765", 
+            json={
+                "action": "addNote",
+                "version": 6,
+                "params": {
+                    "note": {
+                        "deckName": "vocab",
+                        "modelName": "現在写真あり読書",
+                        "fields": {
+                            "Expression": word,
+                            "定義": meaning,
+                            "Reading": reading,
+                            "例文": ex1,
+                            "例文２": ex2,
+                            "写真": image_html,
+                            "単語発��": "",
+                            "発音": "",
+                            "書き方": "",
+                            "他": "",
+                        },
+                        "tags": ["auto"]
+                    }
                 }
             }
-        }
-    )
+        )
 
         print("[ANKI]", res.json())
 
@@ -222,60 +218,53 @@ for w in INPUT_WORDS:
 
 print("\n=== 実行 ===")
 
-with open(OUT_CSV, "w", newline="", encoding="utf-8") as f:
-    writer = csv.writer(f)
-    writer.writerow(["Front", "Meaning", "Reading", "Example1", "Example2", "ImageHTML"])
+for word, d in words.items():
+    meaning = d.get("meaning", "")
+    reading = d.get("reading", "")
+    ex1 = d.get("example1", "")
+    ex2 = d.get("example2", "")
+    image_query = d.get("image_query", word)
 
-    for word, d in words.items():
-        meaning = d.get("meaning", "")
-        reading = d.get("reading", "")
-        ex1 = d.get("example1", "")
-        ex2 = d.get("example2", "")
-        image_query = d.get("image_query", word)
+    image_html = ""
+    path = None
 
-        image_html = ""
-        path = None
+    try:
+        search_terms = [
+            image_query,
+            word,
+            word + " 写真",
+            word + " 画像",
+            word + " object"
+        ]
 
-        try:
-            search_terms = [
-                image_query,
-                word,
-                word + " 写真",
-                word + " 画像",
-                word + " object"
-            ]
+        thumb_url = None
 
-            thumb_url = None
-
-            for term in search_terms:
-                thumb_url = commons_pick_thumb(term)
-                if thumb_url:
-                    break
-
+        for term in search_terms:
+            thumb_url = commons_pick_thumb(term)
             if thumb_url:
-                filename = slugify(word) + ext_from_url(thumb_url)
-                path = os.path.join(MEDIA_DIR, filename)
+                break
 
-                if not os.path.exists(path):
-                    data = request_bytes_with_retry(thumb_url)
-                    with open(path, "wb") as img:
-                        img.write(data)
+        if thumb_url:
+            filename = slugify(word) + ext_from_url(thumb_url)
+            path = os.path.join(MEDIA_DIR, filename)
 
-                image_html = f'<img src="{filename}">'
-                print(f"[IMG] {word}")
-            else:
-                print(f"[NO IMG] {word}")
+            if not os.path.exists(path):
+                data = request_bytes_with_retry(thumb_url)
+                with open(path, "wb") as img:
+                    img.write(data)
 
-        except Exception as e:
-            print(f"[IMG ERR] {word}: {e}")
+            image_html = f'<img src="{filename}">'
+            print(f"[IMG] {word}")
+        else:
+            print(f"[NO IMG] {word}")
 
-        # CSV
-        writer.writerow([word, meaning, reading, ex1, ex2, image_html])
+    except Exception as e:
+        print(f"[IMG ERR] {word}: {e}")
 
-        # Anki
-        add_to_anki(word, meaning, reading, ex1, ex2, path)
+    # Anki直接追加（CSV削除）
+    add_to_anki(word, meaning, reading, ex1, ex2, path)
 
-        time.sleep(SLEEP_SEC)
+    time.sleep(SLEEP_SEC)
 
 print("\n✅ 完了")
 print("👉 Ankiに自動追加されているはず")
